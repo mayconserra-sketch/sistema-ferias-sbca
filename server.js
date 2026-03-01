@@ -1,159 +1,115 @@
 const express = require("express");
-const session = require("express-session");
 const bodyParser = require("body-parser");
-const fs = require("fs");
-const cron = require("node-cron");
+const session = require("express-session");
+const path = require("path");
+const { Pool } = require("pg");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(bodyParser.urlencoded({ extended: true }));
-app.set("view engine", "ejs");
-
-app.use(session({
-  secret: "sbca-ferias-secret",
-  resave: false,
-  saveUninitialized: true
-}));
-
-const USER = "Maycon";
-const PASS = "615243";
-
-/* =========================
-   FUNÇÕES AUXILIARES
-========================= */
-
-function carregarServidores() {
-  return JSON.parse(fs.readFileSync("servidores.json"));
-}
-
-function carregarFerias() {
-  return JSON.parse(fs.readFileSync("ferias-agendadas.json"));
-}
-
-function salvarFerias(dados) {
-  fs.writeFileSync("ferias-agendadas.json", JSON.stringify(dados, null, 2));
-}
-
-function diasRestantes(dataFinal) {
-  const hoje = new Date();
-  const final = new Date(dataFinal);
-  const diff = final - hoje;
-  return Math.ceil(diff / (1000 * 60 * 60 * 24));
-}
-
-/* =========================
-   LOGIN
-========================= */
-
-app.get("/login", (req, res) => {
-  res.render("login");
+// =======================
+// CONFIG BANCO POSTGRESQL
+// =======================
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: {
+    rejectUnauthorized: false,
+  },
 });
 
-app.post("/login", (req, res) => {
-  const { usuario, senha } = req.body;
+// Criar tabelas automaticamente
+async function initDB() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS servidores (
+        id SERIAL PRIMARY KEY,
+        nome VARCHAR(255) NOT NULL,
+        matricula VARCHAR(50)
+      );
+    `);
 
-  if (usuario === USER && senha === PASS) {
-    req.session.logado = true;
-    return res.redirect("/");
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS ferias (
+        id SERIAL PRIMARY KEY,
+        servidor_id INTEGER REFERENCES servidores(id) ON DELETE CASCADE,
+        data_inicio DATE NOT NULL,
+        data_fim DATE NOT NULL,
+        ano_referencia INTEGER,
+        status VARCHAR(50) DEFAULT 'aprovado'
+      );
+    `);
+
+    console.log("Banco conectado e tabelas prontas.");
+  } catch (err) {
+    console.error("Erro ao iniciar banco:", err);
   }
+}
 
-  res.send("Login inválido");
-});
+initDB();
 
-/* =========================
-   DASHBOARD
-========================= */
+// =======================
+// CONFIG EXPRESS
+// =======================
+app.set("view engine", "ejs");
+app.use(bodyParser.urlencoded({ extended: true }));
+app.use(express.static(path.join(__dirname, "public")));
 
-app.get("/", (req, res) => {
-  if (!req.session.logado) return res.redirect("/login");
+app.use(
+  session({
+    secret: "sbca-secret",
+    resave: false,
+    saveUninitialized: true,
+  })
+);
 
-  const servidores = carregarServidores();
-  const ferias = carregarFerias();
-  const hoje = new Date().toISOString().split("T")[0];
+// =======================
+// ROTAS
+// =======================
 
-  const analise = servidores.map(s => {
-    const dias = diasRestantes(s.periodoFinal);
-    return { ...s, dias };
+// Página inicial
+app.get("/", async (req, res) => {
+  const servidores = await pool.query("SELECT * FROM servidores ORDER BY nome");
+  const ferias = await pool.query(`
+    SELECT f.*, s.nome 
+    FROM ferias f
+    JOIN servidores s ON f.servidor_id = s.id
+    ORDER BY f.data_inicio
+  `);
+
+  res.render("index", {
+    servidores: servidores.rows,
+    ferias: ferias.rows,
   });
-
-  const avisosHoje = ferias.filter(f => f.avisoCI === hoje && !f.ciEnviada);
-
-  res.render("dashboard", { analise, avisosHoje });
 });
 
-/* =========================
-   FÉRIAS AGENDADAS
-========================= */
+// Cadastrar servidor
+app.post("/servidor", async (req, res) => {
+  const { nome, matricula } = req.body;
 
-app.get("/ferias", (req, res) => {
-  if (!req.session.logado) return res.redirect("/login");
+  await pool.query(
+    "INSERT INTO servidores (nome, matricula) VALUES ($1, $2)",
+    [nome, matricula]
+  );
 
-  const ferias = carregarFerias();
-  res.render("ferias", { ferias });
+  res.redirect("/");
 });
 
-app.post("/ferias", (req, res) => {
-  const { nome, inicio } = req.body;
+// Cadastrar férias
+app.post("/ferias", async (req, res) => {
+  const { servidor_id, data_inicio, data_fim, ano_referencia } = req.body;
 
-  let ferias = carregarFerias();
+  await pool.query(
+    `INSERT INTO ferias (servidor_id, data_inicio, data_fim, ano_referencia)
+     VALUES ($1, $2, $3, $4)`,
+    [servidor_id, data_inicio, data_fim, ano_referencia]
+  );
 
-  const inicioDate = new Date(inicio);
-  const avisoCI = new Date(inicioDate);
-  avisoCI.setDate(avisoCI.getDate() - 45);
-
-  ferias.push({
-    nome,
-    inicio,
-    avisoCI: avisoCI.toISOString().split("T")[0],
-    ciEnviada: false,
-    avisoEnviado: false
-  });
-
-  salvarFerias(ferias);
-
-  res.redirect("/ferias");
+  res.redirect("/");
 });
 
-/* =========================
-   MARCAR C.I ENVIADA
-========================= */
-
-app.post("/marcar-ci/:index", (req, res) => {
-  let ferias = carregarFerias();
-  const index = req.params.index;
-
-  ferias[index].ciEnviada = true;
-
-  salvarFerias(ferias);
-
-  res.redirect("/ferias");
-});
-
-/* =========================
-   ROTINA AUTOMÁTICA 09:00
-========================= */
-
-cron.schedule("0 9 * * *", () => {
-  console.log("Verificando avisos de C.I...");
-
-  let ferias = carregarFerias();
-  const hoje = new Date().toISOString().split("T")[0];
-
-  ferias.forEach(f => {
-    if (f.avisoCI === hoje && !f.avisoEnviado) {
-      console.log(`⚠ Emitir C.I para ${f.nome}`);
-      f.avisoEnviado = true;
-    }
-  });
-
-  salvarFerias(ferias);
-});
-
-/* =========================
-   INICIAR SERVIDOR
-========================= */
-
+// =======================
+// INICIAR SERVIDOR
+// =======================
 app.listen(PORT, () => {
-  console.log("Sistema de Controle de Férias – SBCA rodando na porta " + PORT);
+  console.log(`Servidor rodando na porta ${PORT}`);
 });
