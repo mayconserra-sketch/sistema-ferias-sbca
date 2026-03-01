@@ -1,0 +1,15 @@
+[
+  {
+    "nome": "Maycon Alexandre Serra",
+    "inicio": "2026-05-01",
+    "avisoCI": "2026-03-17",
+    "ciEnviada": true
+  },
+  {
+    "nome": "Anadir Aparecida Lavandoski",
+    "inicio": "2026-06-01",
+    "avisoCI": "2026-04-17",
+    "ciEnviada": false,
+    "avisoEnviado": false
+  }
+]

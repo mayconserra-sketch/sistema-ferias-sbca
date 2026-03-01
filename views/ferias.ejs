@@ -1,0 +1,44 @@
+<h2>Férias Agendadas - SBCA</h2>
+
+<form method="POST">
+  <input type="text" name="nome" placeholder="Nome do Servidor" required>
+  <input type="date" name="inicio" required>
+  <button type="submit">Adicionar</button>
+</form>
+
+<br><br>
+
+<table border="1" cellpadding="8">
+<tr>
+  <th>Nome</th>
+  <th>Início Férias</th>
+  <th>Aviso C.I (45 dias antes)</th>
+  <th>Status C.I</th>
+  <th>Ação</th>
+</tr>
+
+<% ferias.forEach((f, index) => { %>
+<tr>
+  <td><%= f.nome %></td>
+  <td><%= f.inicio %></td>
+  <td><%= f.avisoCI %></td>
+  <td>
+    <% if (f.ciEnviada) { %>
+      <span style="color:green;"><strong>Enviada</strong></span>
+    <% } else { %>
+      <span style="color:red;"><strong>Pendente</strong></span>
+    <% } %>
+  </td>
+  <td>
+    <% if (!f.ciEnviada) { %>
+      <form method="POST" action="/marcar-ci/<%= index %>">
+        <button type="submit">Marcar C.I Enviada</button>
+      </form>
+    <% } %>
+  </td>
+</tr>
+<% }) %>
+</table>
+
+<br>
+<a href="/">Voltar ao Dashboard</a>

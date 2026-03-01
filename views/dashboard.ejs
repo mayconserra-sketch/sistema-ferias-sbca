@@ -1,0 +1,39 @@
+<h2>Dashboard - Sistema de Controle de Férias – SBCA</h2>
+
+<table border="1" cellpadding="8">
+<tr>
+  <th>Nome</th>
+  <th>Período Final</th>
+  <th>Dias Restantes</th>
+  <th>Status</th>
+</tr>
+
+<% analise.forEach(s => { 
+   let cor = "green";
+   let status = "Normal";
+
+   if (s.dias <= 60) {
+      cor = "orange";
+      status = "Atenção";
+   }
+
+   if (s.dias <= 30) {
+      cor = "red";
+      status = "Crítico";
+   }
+
+   if (s.dias < 0) {
+      cor = "black";
+      status = "Vencido";
+   }
+%>
+
+<tr style="color:<%= cor %>">
+  <td><%= s.nome %></td>
+  <td><%= s.periodoFinal %></td>
+  <td><%= s.dias %></td>
+  <td><%= status %></td>
+</tr>
+
+<% }) %>
+</table>
