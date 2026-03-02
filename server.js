@@ -6,11 +6,12 @@ const { Pool } = require("pg");
 
 const app = express();
 app.set("trust proxy", 1);
+
 const PORT = process.env.PORT || 3000;
 
-// =============================
-// CONFIG BANCO POSTGRESQL
-// =============================
+// ===============================
+// BANCO POSTGRESQL
+// ===============================
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: {
@@ -18,9 +19,9 @@ const pool = new Pool({
   },
 });
 
-// =============================
+// ===============================
 // CONFIG EXPRESS
-// =============================
+// ===============================
 app.set("view engine", "ejs");
 app.set("views", path.join(__dirname, "views"));
 
@@ -32,15 +33,15 @@ app.use(
     resave: false,
     saveUninitialized: false,
     cookie: {
-      secure: true,      // agora TRUE
-      sameSite: "none"   // necessário para HTTPS no Render
-    }
+      secure: true,
+      sameSite: "none",
+    },
   })
 );
 
-// =============================
-// MIDDLEWARE DE PROTEÇÃO
-// =============================
+// ===============================
+// MIDDLEWARE PROTEGER ROTAS
+// ===============================
 function verificarLogin(req, res, next) {
   if (!req.session.usuario) {
     return res.redirect("/login");
@@ -48,16 +49,19 @@ function verificarLogin(req, res, next) {
   next();
 }
 
-// =============================
+// ===============================
 // ROTAS
-// =============================
+// ===============================
 
-// Página de login
+// Página Login
 app.get("/login", (req, res) => {
+  if (req.session.usuario) {
+    return res.redirect("/");
+  }
   res.render("login");
 });
 
-// Processar login
+// Processar Login
 app.post("/login", (req, res) => {
   const { usuario, senha } = req.body;
 
@@ -76,7 +80,7 @@ app.get("/logout", (req, res) => {
   });
 });
 
-// Página principal (PROTEGIDA)
+// Página Principal (PROTEGIDA)
 app.get("/", verificarLogin, async (req, res) => {
   try {
     const servidores = await pool.query(
@@ -91,6 +95,7 @@ app.get("/", verificarLogin, async (req, res) => {
     `);
 
     res.render("index", {
+      usuario: req.session.usuario,
       servidores: servidores.rows,
       ferias: ferias.rows,
     });
@@ -100,7 +105,6 @@ app.get("/", verificarLogin, async (req, res) => {
   }
 });
 
-// =============================
 app.listen(PORT, () => {
   console.log("Servidor rodando na porta " + PORT);
 });
