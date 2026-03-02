@@ -58,7 +58,10 @@ app.use(
   session({
     secret: "sbca-secret",
     resave: false,
-    saveUninitialized: true,
+    saveUninitialized: false,
+    cookie: {
+      secure: false
+    }
   })
 );
 
