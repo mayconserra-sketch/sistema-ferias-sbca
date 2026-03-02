@@ -65,8 +65,10 @@ app.use(
 // =======================
 // ROTAS
 // =======================
-
-// Página inicial
+// Página de login
+app.get("/login", (req, res) => {
+  res.render("login");
+});
 app.get("/", async (req, res) => {
   const servidores = await pool.query("SELECT * FROM servidores ORDER BY nome");
   const ferias = await pool.query(`
