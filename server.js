@@ -32,8 +32,9 @@ app.use(
     resave: false,
     saveUninitialized: false,
     cookie: {
-      secure: false,
-    },
+      secure: true,      // agora TRUE
+      sameSite: "none"   // necessário para HTTPS no Render
+    }
   })
 );
 
