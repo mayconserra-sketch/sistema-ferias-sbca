@@ -5,23 +5,19 @@ const path = require("path");
 const { Pool } = require("pg");
 
 const app = express();
-app.set("trust proxy", 1);
-
 const PORT = process.env.PORT || 3000;
 
-// ===============================
-// BANCO POSTGRESQL
-// ===============================
+// =====================
+// BANCO POSTGRES
+// =====================
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: {
-    rejectUnauthorized: false,
-  },
+  ssl: { rejectUnauthorized: false },
 });
 
-// ===============================
+// =====================
 // CONFIG EXPRESS
-// ===============================
+// =====================
 app.set("view engine", "ejs");
 app.set("views", path.join(__dirname, "views"));
 
@@ -32,16 +28,12 @@ app.use(
     secret: "sbca-secret",
     resave: false,
     saveUninitialized: false,
-    cookie: {
-      secure: true,
-      sameSite: "none",
-    },
   })
 );
 
-// ===============================
-// MIDDLEWARE PROTEGER ROTAS
-// ===============================
+// =====================
+// MIDDLEWARE LOGIN
+// =====================
 function verificarLogin(req, res, next) {
   if (!req.session.usuario) {
     return res.redirect("/login");
@@ -49,19 +41,16 @@ function verificarLogin(req, res, next) {
   next();
 }
 
-// ===============================
+// =====================
 // ROTAS
-// ===============================
+// =====================
 
-// Página Login
+// LOGIN GET
 app.get("/login", (req, res) => {
-  if (req.session.usuario) {
-    return res.redirect("/");
-  }
   res.render("login");
 });
 
-// Processar Login
+// LOGIN POST
 app.post("/login", (req, res) => {
   const { usuario, senha } = req.body;
 
@@ -73,14 +62,14 @@ app.post("/login", (req, res) => {
   res.send("Usuário ou senha inválidos");
 });
 
-// Logout
+// LOGOUT
 app.get("/logout", (req, res) => {
   req.session.destroy(() => {
     res.redirect("/login");
   });
 });
 
-// Página Principal (PROTEGIDA)
+// HOME (PROTEGIDA)
 app.get("/", verificarLogin, async (req, res) => {
   try {
     const servidores = await pool.query(
