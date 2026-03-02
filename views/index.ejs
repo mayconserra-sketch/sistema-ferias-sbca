@@ -3,67 +3,17 @@
 <head>
   <title>Sistema de Férias SBCA</title>
   <style>
-    body {
-      font-family: Arial;
-      background: #f4f6f9;
-      margin: 0;
-    }
-
-    header {
-      background: #1e3a8a;
-      color: white;
-      padding: 15px 30px;
-      display: flex;
-      justify-content: space-between;
-    }
-
-    .container {
-      padding: 30px;
-    }
-
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      background: white;
-      margin-top: 10px;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
-    }
-
-    th {
-      background: #1e3a8a;
-      color: white;
-      padding: 10px;
-    }
-
-    td {
-      padding: 10px;
-      border-bottom: 1px solid #ddd;
-    }
-
-    button {
-      background: #1e3a8a;
-      color: white;
-      border: none;
-      padding: 6px 12px;
-      cursor: pointer;
-    }
-
-    button:hover {
-      background: #162d6b;
-    }
-
-    .cards {
-      display: flex;
-      gap: 20px;
-      margin-bottom: 30px;
-    }
-
-    .card {
-      flex: 1;
-      background: white;
-      padding: 20px;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
-    }
+    body { font-family: Arial; background:#f4f6f9; margin:0; }
+    header { background:#1e3a8a; color:white; padding:15px 30px; display:flex; justify-content:space-between; }
+    .container { padding:30px; }
+    table { width:100%; border-collapse:collapse; background:white; margin-top:10px; box-shadow:0 2px 6px rgba(0,0,0,0.1); }
+    th { background:#1e3a8a; color:white; padding:10px; }
+    td { padding:10px; border-bottom:1px solid #ddd; }
+    button { background:#1e3a8a; color:white; border:none; padding:6px 12px; cursor:pointer; }
+    button:hover { background:#162d6b; }
+    .cards { display:flex; gap:20px; margin-bottom:30px; }
+    .card { flex:1; background:white; padding:20px; box-shadow:0 2px 6px rgba(0,0,0,0.1); }
+    .alerta { background:#fff3cd; padding:15px; margin-bottom:20px; border:1px solid #ffeeba; }
   </style>
 </head>
 <body>
@@ -79,21 +29,23 @@
 <div class="container">
 
 <div class="cards">
-  <div class="card">
-    <h3>Total Servidores</h3>
-    <h2><%= totalServidores %></h2>
-  </div>
-
-  <div class="card">
-    <h3>Férias Ativas</h3>
-    <h2><%= feriasAtivas %></h2>
-  </div>
-
-  <div class="card">
-    <h3>Férias Futuras</h3>
-    <h2><%= feriasFuturas %></h2>
-  </div>
+  <div class="card"><h3>Total Servidores</h3><h2><%= totalServidores %></h2></div>
+  <div class="card"><h3>Férias Ativas</h3><h2><%= feriasAtivas %></h2></div>
+  <div class="card"><h3>Férias Futuras</h3><h2><%= feriasFuturas %></h2></div>
 </div>
+
+<% if (avisoCI.length > 0) { %>
+  <div class="alerta">
+    <strong>⚠️ Comunicação Interna para RH:</strong><br><br>
+    <% avisoCI.forEach(a => { %>
+      <div>
+        Enviar C.I. para <strong><%= a.nome %></strong> 
+        (Férias iniciam em 
+        <%= new Date(a.data_inicio).toISOString().split('T')[0] %>)
+      </div>
+    <% }) %>
+  </div>
+<% } %>
 
 <h2>Cadastrar Servidor</h2>
 <form action="/servidor" method="POST">
@@ -104,11 +56,7 @@
 
 <h2>Servidores</h2>
 <table>
-<tr>
-  <th>ID</th>
-  <th>Nome</th>
-  <th>Matrícula</th>
-</tr>
+<tr><th>ID</th><th>Nome</th><th>Matrícula</th></tr>
 <% servidores.forEach(s => { %>
 <tr>
   <td><%= s.id %></td>
@@ -152,8 +100,8 @@
   <td><%= new Date(f.data_inicio).toISOString().split('T')[0] %></td>
   <td><%= new Date(f.data_fim).toISOString().split('T')[0] %></td>
   <td>
-    <form action="/ferias/delete/<%= f.id %>" method="POST" 
-          onsubmit="return confirm('Deseja excluir essas férias?');">
+    <form action="/ferias/delete/<%= f.id %>" method="POST"
+      onsubmit="return confirm('Deseja excluir essas férias?');">
       <button type="submit">Excluir</button>
     </form>
   </td>
