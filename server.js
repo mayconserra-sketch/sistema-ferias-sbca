@@ -1,7 +1,9 @@
 const express = require("express");
 const session = require("express-session");
 const { Pool } = require("pg");
-const PDFDocument = require("pdfkit");
+const multer = require("multer");
+const XLSX = require("xlsx");
+const fs = require("fs");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -27,7 +29,9 @@ function verificarLogin(req, res, next) {
   next();
 }
 
-/* ================= LOGIN ================= */
+const upload = multer({ dest: "uploads/" });
+
+/* LOGIN */
 
 app.get("/login", (req, res) => {
   res.render("login");
@@ -50,148 +54,84 @@ app.get("/logout", (req, res) => {
   });
 });
 
-/* ================= DASHBOARD ================= */
+/* DASHBOARD */
 
 app.get("/", verificarLogin, async (req, res) => {
 
-  const servidores = await pool.query("SELECT * FROM servidores ORDER BY id");
+  const servidores = await pool.query("SELECT * FROM servidores ORDER BY nome");
 
-  let filtroMes = req.query.mes;
-
-  let queryFerias = `
-    SELECT f.*, s.nome 
-    FROM ferias f
-    JOIN servidores s ON s.id = f.servidor_id
-  `;
-
-  if (filtroMes) {
-    queryFerias += `
-      WHERE TO_CHAR(f.data_inicio, 'YYYY-MM') = '${filtroMes}'
-    `;
-  }
-
-  queryFerias += " ORDER BY f.data_inicio";
-
-  const ferias = await pool.query(queryFerias);
-
-  const totalServidores = servidores.rows.length;
-
-  const feriasAtivas = await pool.query(`
-    SELECT COUNT(*) FROM ferias
-    WHERE CURRENT_DATE BETWEEN data_inicio AND data_fim
+  const periodos = await pool.query(`
+    SELECT p.*, s.nome,
+    (p.periodo_fim + INTERVAL '12 months') AS vencimento
+    FROM periodos p
+    JOIN servidores s ON s.id = p.servidor_id
+    ORDER BY p.periodo_inicio DESC
   `);
 
-  const feriasFuturas = await pool.query(`
-    SELECT COUNT(*) FROM ferias
-    WHERE data_inicio > CURRENT_DATE
-  `);
-
-  /* 🔔 ALERTA 45 DIAS PARA C.I. */
-  const avisoCI = await pool.query(`
-    SELECT s.nome, f.data_inicio
-    FROM ferias f
-    JOIN servidores s ON s.id = f.servidor_id
-    WHERE f.data_inicio BETWEEN CURRENT_DATE 
-    AND CURRENT_DATE + INTERVAL '45 days'
+  const vencendo = await pool.query(`
+    SELECT s.nome, p.periodo_fim,
+    (p.periodo_fim + INTERVAL '12 months') AS vencimento
+    FROM periodos p
+    JOIN servidores s ON s.id = p.servidor_id
+    WHERE (p.periodo_fim + INTERVAL '12 months')
+    BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '60 days'
   `);
 
   res.render("index", {
     usuario: req.session.usuario,
     servidores: servidores.rows,
-    ferias: ferias.rows,
-    totalServidores,
-    feriasAtivas: feriasAtivas.rows[0].count,
-    feriasFuturas: feriasFuturas.rows[0].count,
-    avisoCI: avisoCI.rows
+    periodos: periodos.rows,
+    vencendo: vencendo.rows
   });
 
 });
 
-/* ================= CADASTRAR SERVIDOR ================= */
+/* IMPORTAR RELATÓRIO RH */
 
-app.post("/servidor", verificarLogin, async (req, res) => {
-  const { nome, matricula } = req.body;
+app.post("/importar", verificarLogin, upload.single("arquivo"), async (req, res) => {
 
-  await pool.query(
-    "INSERT INTO servidores (nome, matricula) VALUES ($1, $2)",
-    [nome, matricula]
-  );
+  const workbook = XLSX.readFile(req.file.path);
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const dados = XLSX.utils.sheet_to_json(sheet);
 
-  res.redirect("/");
-});
+  for (let linha of dados) {
 
-/* ================= CADASTRAR FÉRIAS COM REGRAS ================= */
+    const codigo = linha["Funcionário - Código"];
+    const inicio = linha["Período Aquisitivo - Início"];
+    const fim = linha["Período Aquisitivo - Final"];
+    const direito = linha["Dias - Direito"];
+    const pagos = linha["Dias - Pagos"];
+    const saldo = linha["Dias Proporcional - Saldo"];
 
-app.post("/ferias", verificarLogin, async (req, res) => {
-  const { servidor_id, data_inicio, data_fim } = req.body;
+    const servidor = await pool.query(
+      "SELECT id FROM servidores WHERE matricula = $1",
+      [codigo]
+    );
 
-  /* ❌ REGRA: máximo 2 períodos */
-  const quantidade = await pool.query(
-    "SELECT COUNT(*) FROM ferias WHERE servidor_id = $1",
-    [servidor_id]
-  );
+    if (servidor.rows.length === 0) continue;
 
-  if (parseInt(quantidade.rows[0].count) >= 2) {
-    return res.send("❌ Este servidor já possui dois períodos de férias cadastrados.");
+    const servidor_id = servidor.rows[0].id;
+
+    const existe = await pool.query(
+      `SELECT id FROM periodos 
+       WHERE servidor_id = $1 
+       AND periodo_inicio = $2`,
+      [servidor_id, inicio]
+    );
+
+    if (existe.rows.length === 0) {
+      await pool.query(
+        `INSERT INTO periodos 
+        (servidor_id, periodo_inicio, periodo_fim, dias_direito, dias_pagos, saldo)
+        VALUES ($1,$2,$3,$4,$5,$6)`,
+        [servidor_id, inicio, fim, direito, pagos, saldo]
+      );
+    }
   }
 
-  /* ❌ REGRA: conflito de datas */
-  const conflito = await pool.query(
-    `SELECT * FROM ferias 
-     WHERE servidor_id = $1
-     AND (data_inicio, data_fim) OVERLAPS ($2, $3)`,
-    [servidor_id, data_inicio, data_fim]
-  );
-
-  if (conflito.rows.length > 0) {
-    return res.send("⚠️ Já existe férias nesse período.");
-  }
-
-  await pool.query(
-    "INSERT INTO ferias (servidor_id, data_inicio, data_fim) VALUES ($1, $2, $3)",
-    [servidor_id, data_inicio, data_fim]
-  );
+  fs.unlinkSync(req.file.path);
 
   res.redirect("/");
-});
-
-/* ================= EXCLUIR FÉRIAS ================= */
-
-app.post("/ferias/delete/:id", verificarLogin, async (req, res) => {
-  const { id } = req.params;
-  await pool.query("DELETE FROM ferias WHERE id = $1", [id]);
-  res.redirect("/");
-});
-
-/* ================= EXPORTAR PDF ================= */
-
-app.get("/relatorio", verificarLogin, async (req, res) => {
-
-  const ferias = await pool.query(`
-    SELECT f.*, s.nome 
-    FROM ferias f
-    JOIN servidores s ON s.id = f.servidor_id
-    ORDER BY f.data_inicio
-  `);
-
-  const doc = new PDFDocument();
-
-  res.setHeader("Content-Type", "application/pdf");
-  res.setHeader("Content-Disposition", "inline; filename=relatorio-ferias.pdf");
-
-  doc.pipe(res);
-
-  doc.fontSize(18).text("Relatório de Férias SBCA");
-  doc.moveDown();
-
-  ferias.rows.forEach(f => {
-    const inicio = new Date(f.data_inicio).toISOString().split("T")[0];
-    const fim = new Date(f.data_fim).toISOString().split("T")[0];
-
-    doc.text(`${f.nome} - ${inicio} até ${fim}`);
-  });
-
-  doc.end();
 });
 
 app.listen(PORT, () => {
