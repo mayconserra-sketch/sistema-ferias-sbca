@@ -1,5 +1,147 @@
-<h1>Sistema de Férias SBCA</h1>
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Sistema de Férias SBCA</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f4f6f9;
+      margin: 0;
+      padding: 0;
+    }
 
-<h2>Bem-vindo, <%= usuario %> ✅</h2>
+    header {
+      background-color: #1e3a8a;
+      color: white;
+      padding: 15px 30px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
 
-<a href="/logout">Sair</a>
+    header a {
+      color: white;
+      text-decoration: none;
+      font-weight: bold;
+    }
+
+    .container {
+      padding: 30px;
+    }
+
+    h2 {
+      margin-top: 40px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: white;
+      margin-top: 10px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+
+    th, td {
+      padding: 10px;
+      border-bottom: 1px solid #ddd;
+      text-align: left;
+    }
+
+    th {
+      background-color: #1e3a8a;
+      color: white;
+    }
+
+    form {
+      margin-top: 15px;
+    }
+
+    input, select {
+      padding: 6px;
+      margin-right: 5px;
+    }
+
+    button {
+      padding: 6px 12px;
+      background-color: #1e3a8a;
+      color: white;
+      border: none;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background-color: #162d6b;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Sistema de Férias SBCA</h1>
+  <div>
+    Bem-vindo, <strong><%= usuario %></strong> |
+    <a href="/logout">Sair</a>
+  </div>
+</header>
+
+<div class="container">
+
+  <!-- CADASTRAR SERVIDOR -->
+  <h2>Cadastrar Servidor</h2>
+  <form action="/servidor" method="POST">
+    <input type="text" name="nome" placeholder="Nome" required>
+    <input type="text" name="matricula" placeholder="Matrícula" required>
+    <button type="submit">Cadastrar</button>
+  </form>
+
+  <!-- LISTA SERVIDORES -->
+  <h2>Servidores</h2>
+  <table>
+    <tr>
+      <th>ID</th>
+      <th>Nome</th>
+      <th>Matrícula</th>
+    </tr>
+    <% servidores.forEach(s => { %>
+      <tr>
+        <td><%= s.id %></td>
+        <td><%= s.nome %></td>
+        <td><%= s.matricula %></td>
+      </tr>
+    <% }) %>
+  </table>
+
+  <!-- CADASTRAR FÉRIAS -->
+  <h2>Agendar Férias</h2>
+  <form action="/ferias" method="POST">
+    <select name="servidor_id" required>
+      <% servidores.forEach(s => { %>
+        <option value="<%= s.id %>"><%= s.nome %></option>
+      <% }) %>
+    </select>
+    <input type="date" name="data_inicio" required>
+    <input type="date" name="data_fim" required>
+    <button type="submit">Agendar</button>
+  </form>
+
+  <!-- LISTA FÉRIAS -->
+  <h2>Férias Agendadas</h2>
+  <table>
+    <tr>
+      <th>Servidor</th>
+      <th>Início</th>
+      <th>Fim</th>
+    </tr>
+    <% ferias.forEach(f => { %>
+      <tr>
+        <td><%= f.nome %></td>
+        <td><%= f.data_inicio.toISOString().split('T')[0] %></td>
+        <td><%= f.data_fim.toISOString().split('T')[0] %></td>
+      </tr>
+    <% }) %>
+  </table>
+
+</div>
+
+</body>
+</html>
