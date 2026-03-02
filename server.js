@@ -1,51 +1,35 @@
 const express = require("express");
 const session = require("express-session");
-const bodyParser = require("body-parser");
-const fs = require("fs");
-const cron = require("node-cron");
+const { Pool } = require("pg");
+const PDFDocument = require("pdfkit");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(bodyParser.urlencoded({ extended: true }));
+// Banco PostgreSQL
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false }
+});
+
+app.use(express.urlencoded({ extended: true }));
 app.set("view engine", "ejs");
 
 app.use(session({
-  secret: "sbca-ferias-secret",
+  secret: "sistema-ferias-secreto",
   resave: false,
-  saveUninitialized: true
+  saveUninitialized: false
 }));
 
-const USER = "Maycon";
-const PASS = "615243";
-
-/* =========================
-   FUNÇÕES AUXILIARES
-========================= */
-
-function carregarServidores() {
-  return JSON.parse(fs.readFileSync("servidores.json"));
+// Middleware login
+function verificarLogin(req, res, next) {
+  if (!req.session.usuario) {
+    return res.redirect("/login");
+  }
+  next();
 }
 
-function carregarFerias() {
-  return JSON.parse(fs.readFileSync("ferias-agendadas.json"));
-}
-
-function salvarFerias(dados) {
-  fs.writeFileSync("ferias-agendadas.json", JSON.stringify(dados, null, 2));
-}
-
-function diasRestantes(dataFinal) {
-  const hoje = new Date();
-  const final = new Date(dataFinal);
-  const diff = final - hoje;
-  return Math.ceil(diff / (1000 * 60 * 60 * 24));
-}
-
-/* =========================
-   LOGIN
-========================= */
-
+// LOGIN SIMPLES
 app.get("/login", (req, res) => {
   res.render("login");
 });
@@ -53,107 +37,140 @@ app.get("/login", (req, res) => {
 app.post("/login", (req, res) => {
   const { usuario, senha } = req.body;
 
-  if (usuario === USER && senha === PASS) {
-    req.session.logado = true;
+  if (usuario === "admin" && senha === "123") {
+    req.session.usuario = usuario;
     return res.redirect("/");
   }
 
   res.send("Login inválido");
 });
 
-/* =========================
-   DASHBOARD
-========================= */
+app.get("/logout", (req, res) => {
+  req.session.destroy(() => {
+    res.redirect("/login");
+  });
+});
 
-app.get("/", (req, res) => {
-  if (!req.session.logado) return res.redirect("/login");
+// DASHBOARD PRINCIPAL
+app.get("/", verificarLogin, async (req, res) => {
 
-  const servidores = carregarServidores();
-  const ferias = carregarFerias();
-  const hoje = new Date().toISOString().split("T")[0];
+  const servidores = await pool.query("SELECT * FROM servidores ORDER BY id");
 
-  const analise = servidores.map(s => {
-    const dias = diasRestantes(s.periodoFinal);
-    return { ...s, dias };
+  let filtroMes = req.query.mes;
+
+  let queryFerias = `
+    SELECT f.*, s.nome 
+    FROM ferias f
+    JOIN servidores s ON s.id = f.servidor_id
+  `;
+
+  if (filtroMes) {
+    queryFerias += `
+      WHERE TO_CHAR(f.data_inicio, 'YYYY-MM') = '${filtroMes}'
+    `;
+  }
+
+  queryFerias += " ORDER BY f.data_inicio";
+
+  const ferias = await pool.query(queryFerias);
+
+  const totalServidores = servidores.rows.length;
+
+  const feriasAtivas = await pool.query(`
+    SELECT COUNT(*) FROM ferias
+    WHERE CURRENT_DATE BETWEEN data_inicio AND data_fim
+  `);
+
+  const feriasFuturas = await pool.query(`
+    SELECT COUNT(*) FROM ferias
+    WHERE data_inicio > CURRENT_DATE
+  `);
+
+  res.render("index", {
+    usuario: req.session.usuario,
+    servidores: servidores.rows,
+    ferias: ferias.rows,
+    totalServidores,
+    feriasAtivas: feriasAtivas.rows[0].count,
+    feriasFuturas: feriasFuturas.rows[0].count
   });
 
-  const avisosHoje = ferias.filter(f => f.avisoCI === hoje && !f.ciEnviada);
-
-  res.render("dashboard", { analise, avisosHoje });
 });
 
-/* =========================
-   FÉRIAS AGENDADAS
-========================= */
+// CADASTRAR SERVIDOR
+app.post("/servidor", verificarLogin, async (req, res) => {
+  const { nome, matricula } = req.body;
 
-app.get("/ferias", (req, res) => {
-  if (!req.session.logado) return res.redirect("/login");
+  await pool.query(
+    "INSERT INTO servidores (nome, matricula) VALUES ($1, $2)",
+    [nome, matricula]
+  );
 
-  const ferias = carregarFerias();
-  res.render("ferias", { ferias });
+  res.redirect("/");
 });
 
-app.post("/ferias", (req, res) => {
-  const { nome, inicio } = req.body;
+// CADASTRAR FÉRIAS COM VALIDAÇÃO
+app.post("/ferias", verificarLogin, async (req, res) => {
+  const { servidor_id, data_inicio, data_fim } = req.body;
 
-  let ferias = carregarFerias();
+  const conflito = await pool.query(
+    `SELECT * FROM ferias 
+     WHERE servidor_id = $1
+     AND (data_inicio, data_fim) OVERLAPS ($2, $3)`,
+    [servidor_id, data_inicio, data_fim]
+  );
 
-  const inicioDate = new Date(inicio);
-  const avisoCI = new Date(inicioDate);
-  avisoCI.setDate(avisoCI.getDate() - 45);
+  if (conflito.rows.length > 0) {
+    return res.send("⚠️ Já existe férias nesse período para esse servidor.");
+  }
 
-  ferias.push({
-    nome,
-    inicio,
-    avisoCI: avisoCI.toISOString().split("T")[0],
-    ciEnviada: false,
-    avisoEnviado: false
+  await pool.query(
+    "INSERT INTO ferias (servidor_id, data_inicio, data_fim) VALUES ($1, $2, $3)",
+    [servidor_id, data_inicio, data_fim]
+  );
+
+  res.redirect("/");
+});
+
+// EXCLUIR FÉRIAS
+app.post("/ferias/delete/:id", verificarLogin, async (req, res) => {
+  const { id } = req.params;
+
+  await pool.query("DELETE FROM ferias WHERE id = $1", [id]);
+
+  res.redirect("/");
+});
+
+// EXPORTAR PDF
+app.get("/relatorio", verificarLogin, async (req, res) => {
+
+  const ferias = await pool.query(`
+    SELECT f.*, s.nome 
+    FROM ferias f
+    JOIN servidores s ON s.id = f.servidor_id
+    ORDER BY f.data_inicio
+  `);
+
+  const doc = new PDFDocument();
+
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", "inline; filename=relatorio-ferias.pdf");
+
+  doc.pipe(res);
+
+  doc.fontSize(18).text("Relatório de Férias SBCA");
+  doc.moveDown();
+
+  ferias.rows.forEach(f => {
+    const inicio = new Date(f.data_inicio).toISOString().split("T")[0];
+    const fim = new Date(f.data_fim).toISOString().split("T")[0];
+
+    doc.text(`${f.nome} - ${inicio} até ${fim}`);
   });
 
-  salvarFerias(ferias);
-
-  res.redirect("/ferias");
+  doc.end();
 });
-
-/* =========================
-   MARCAR C.I ENVIADA
-========================= */
-
-app.post("/marcar-ci/:index", (req, res) => {
-  let ferias = carregarFerias();
-  const index = req.params.index;
-
-  ferias[index].ciEnviada = true;
-
-  salvarFerias(ferias);
-
-  res.redirect("/ferias");
-});
-
-/* =========================
-   ROTINA AUTOMÁTICA 09:00
-========================= */
-
-cron.schedule("0 9 * * *", () => {
-  console.log("Verificando avisos de C.I...");
-
-  let ferias = carregarFerias();
-  const hoje = new Date().toISOString().split("T")[0];
-
-  ferias.forEach(f => {
-    if (f.avisoCI === hoje && !f.avisoEnviado) {
-      console.log(`⚠ Emitir C.I para ${f.nome}`);
-      f.avisoEnviado = true;
-    }
-  });
-
-  salvarFerias(ferias);
-});
-
-/* =========================
-   INICIAR SERVIDOR
-========================= */
 
 app.listen(PORT, () => {
-  console.log("Sistema de Controle de Férias – SBCA rodando na porta " + PORT);
+  console.log("Servidor rodando na porta " + PORT);
 });
