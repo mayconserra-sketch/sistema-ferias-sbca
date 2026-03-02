@@ -93,7 +93,29 @@ app.get("/", verificarLogin, async (req, res) => {
     res.send("Erro ao carregar dados");
   }
 });
+// Cadastrar servidor
+app.post("/servidor", verificarLogin, async (req, res) => {
+  const { nome, matricula } = req.body;
 
+  await pool.query(
+    "INSERT INTO servidores (nome, matricula) VALUES ($1, $2)",
+    [nome, matricula]
+  );
+
+  res.redirect("/");
+});
+
+// Cadastrar férias
+app.post("/ferias", verificarLogin, async (req, res) => {
+  const { servidor_id, data_inicio, data_fim } = req.body;
+
+  await pool.query(
+    "INSERT INTO ferias (servidor_id, data_inicio, data_fim) VALUES ($1, $2, $3)",
+    [servidor_id, data_inicio, data_fim]
+  );
+
+  res.redirect("/");
+});
 app.listen(PORT, () => {
   console.log("Servidor rodando na porta " + PORT);
 });
