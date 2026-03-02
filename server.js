@@ -66,6 +66,16 @@ app.use(
 // ROTAS
 // =======================
 // Página de login
+app.post("/login", async (req, res) => {
+  const { usuario, senha } = req.body;
+
+  if (usuario === "admin" && senha === "123") {
+    req.session.usuario = usuario;
+    return res.redirect("/");
+  }
+
+  res.send("Usuário ou senha inválidos");
+});
 app.get("/login", (req, res) => {
   res.render("login");
 });
